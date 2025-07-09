@@ -1,12 +1,15 @@
-/*xsc-x selection clipboard.
-reads stdin and makes it an X CLIPBOARD selection.
-deps:libX11.
-build:cc -o xsc xsc.c -lX11
-*/
-#include <X11/Xlib.h>
-#include <unistd.h>
+/*
+ * xsc -- copy standard input into X11 cliboard selection.
+ */
+
+#include <err.h>
 #include <stdlib.h>
-#include<string.h>
+#include <string.h>
+#include <unistd.h>
+
+#include <X11/Xlib.h>
+
+#define BUF_SZ 4096
 
 static Atom CLIPATM;
 static Atom STRATM;
@@ -15,145 +18,151 @@ static Atom UTF8STRATM;
 static Atom TXTATM;
 static Atom TRGTSATM;
 
-static unsigned char* DATA=NULL;
-static int inlen=0;//input(DATA) length.
+static unsigned char* data = NULL; /* The data to be copied. */
+static int inlen = 0; /* Length of `data'. */
 
-//obtain atoms.
+/*
+ * Obtain atoms.
+ */
 void
 obtatms(Display* dpl)
 {
-	CLIPATM=XInternAtom(dpl,"CLIPBOARD",False);
-	STRATM=XInternAtom(dpl,"STRING",False);
-	XSTRATM=XInternAtom(dpl,"XA_STRING",False);
-	UTF8STRATM=XInternAtom(dpl,"UTF8_STRING",False);
-	TXTATM=XInternAtom(dpl,"TEXT",False);
-	TRGTSATM=XInternAtom(dpl,"TARGETS",False);	
-};
+	CLIPATM = XInternAtom(dpl, "CLIPBOARD", False);
+	STRATM = XInternAtom(dpl, "STRING", False);
+	XSTRATM = XInternAtom(dpl, "XA_STRING", False);
+	UTF8STRATM = XInternAtom(dpl, "UTF8_STRING", False);
+	TXTATM = XInternAtom(dpl, "TEXT", False);
+	TRGTSATM = XInternAtom(dpl, "TARGETS", False);	
+}
 
-//selection notify.
+/*
+ * Selection notification.
+ */
 void
-selntf(XSelectionRequestEvent* srev,Atom prop)
+selntf(XSelectionRequestEvent* srev, Atom prop)
 {
 	XSelectionEvent snev;
-	snev.type=SelectionNotify;
-	snev.serial=srev->serial;
-	snev.send_event=srev->send_event;
-	snev.display=srev->display;
-	snev.requestor=srev->requestor;
-	snev.selection=srev->selection;
-	snev.target=srev->target;
-	snev.property=prop;
+	snev.type = SelectionNotify;
+	snev.serial = srev->serial;
+	snev.send_event = srev->send_event;
+	snev.display = srev->display;
+	snev.requestor = srev->requestor;
+	snev.selection = srev->selection;
+	snev.target = srev->target;
+	snev.property = prop;
 	snev.time=srev->time;
-	XSendEvent(srev->display,srev->requestor,False,NoEventMask,(XEvent*)&snev);
-};
+	XSendEvent(srev->display, srev->requestor, False, NoEventMask,
+	    (XEvent*)&snev);
+}
 
-//selection deny.
+/*
+ * Selection denial.
+ */
 void
 seldeny(XSelectionRequestEvent* srev)
 {
-	selntf(srev,None);
-};
+	selntf(srev, None);
+}
 
 void
 wdie(Display* dpl)
 {
 	XCloseDisplay(dpl);
-	free(DATA);
+	free(data);
 	exit(0);
-};
+}
 
 void
 wrun(void)
 {
-	Display* dpl=XOpenDisplay(NULL);
-	if(dpl==NULL)
-	{
-		write(2,"display open err.\n",18);
-		exit(1);
-	}
-	obtatms(dpl);
-	Window w=XCreateSimpleWindow(dpl,DefaultRootWindow(dpl),0,0,1,1,0,0,0);
-	while(XGetSelectionOwner(dpl,CLIPATM)!=w)
-	{
-		XSetSelectionOwner(dpl,CLIPATM,w,CurrentTime);
-	};
+	Display* dpl;
+	Window w;
 	XEvent ev;
-	for(;;)
-	{
-		XNextEvent(dpl,&ev);
-		switch(ev.type)
-		{
-			case SelectionRequest:
-			{
-				XSelectionRequestEvent* srev=&(ev.xselectionrequest);
-				if(srev->property==None)
-				{
-					seldeny(srev);
-					break;
-				}
-				if(srev->target==TRGTSATM)
-				{/*selection targets reply.*/
-				Atom trgts[]={UTF8STRATM,XSTRATM,STRATM,TXTATM};
-				XChangeProperty(srev->display,srev->requestor,srev->property,srev->target,
-				32,PropModeReplace,(unsigned char*)trgts,(int)(sizeof(trgts)/sizeof(Atom)));
-				selntf(srev,srev->property);
-					break;
-				}
-				else if((srev->target==STRATM)||(srev->target==XSTRATM)||(srev->target==UTF8STRATM)||(srev->target==TXTATM))
-				{/*selection reply*/
-				XChangeProperty(srev->display,srev->requestor,srev->property,srev->target,8,
-				PropModeReplace,DATA,inlen);
-				selntf(srev,srev->property);
+	
+	if ((dpl = XOpenDisplay(NULL)) == NULL)
+		err(1, "XOpenDisplay()");
+	
+	obtatms(dpl);
+	w = XCreateSimpleWindow(dpl, DefaultRootWindow(dpl), 0, 0, 1, 1,
+	    0, 0, 0);
+	
+	while(XGetSelectionOwner(dpl, CLIPATM) != w)
+		XSetSelectionOwner(dpl, CLIPATM, w, CurrentTime);
+	
+	for (;;) {
+		XNextEvent(dpl, &ev);
+		switch(ev.type) {
+		case SelectionRequest: {
+			XSelectionRequestEvent* srev = &(ev.xselectionrequest);
+			if (srev->property == None) {
+				seldeny(srev);
 				break;
-				}
-				else
-				{
-					seldeny(srev);
-					break;
-				}
-			};
-			case SelectionClear:
-			{
-				wdie(dpl);
-			};
-		};
-	};
-};
+			}
+			/* Reply available selection targets. */
+			if (srev->target == TRGTSATM) {
+				Atom trgts[] = {UTF8STRATM, XSTRATM, STRATM,
+				    TXTATM};
+				
+				XChangeProperty(srev->display, srev->requestor,
+				    srev->property, srev->target, 32,
+				    PropModeReplace, (unsigned char*)trgts,
+				    (int)(sizeof(trgts)/sizeof(Atom)));
+				selntf(srev, srev->property);
+				break;
+			}
+			/*
+			 * Actual selection reply.
+			 */
+			else if ((srev->target == STRATM) || (srev->target ==
+			    XSTRATM) || (srev->target == UTF8STRATM) ||
+			    (srev->target == TXTATM)) {
+				XChangeProperty(srev->display, srev->requestor,
+				    srev->property, srev->target,8,
+				    PropModeReplace, data, inlen);
+				selntf(srev, srev->property);
+				break;
+			}
+			else {
+				seldeny(srev);
+				break;
+			}
+		}
+		case SelectionClear:
+			wdie(dpl);
+		}
+	}
+}
 
 int
-main(void)
+main()
 {
-	char buf[4096];
-	char* in=NULL;
+	char buf[BUF_SZ];
+	char* in;
 	ssize_t rdr;
-	/*fill input buffer*/
-	while((rdr=read(0,&buf,4096))>0)
-	{
-		buf[rdr]=0;
-		inlen+=rdr;
-		in=realloc(in,inlen);
-		if(in==NULL)
-		{
-			write(2,"realloc err.\n",13);
-			return 1;
-		}
-		strcat(in,buf);
-	};
-	DATA=in;
-	pid_t forkr=fork();
-	if(forkr==-1)
-	{/*fork error*/
-		write(2,"fork err.\n",10);
-		free(DATA);
-		return 1;
+	
+	in = NULL;
+	
+	/* Fill the input buffer. */
+	while((rdr = read(0, &buf, BUF_SZ)) > 0) {
+		buf[rdr] = 0;
+		inlen += rdr;
+		if ((in = realloc(in, inlen)) == NULL)
+			err(1, "realloc()");
+		strcat(in, buf);
 	}
-	else if(forkr==0)
-	{/*child*/
+	
+	data = (unsigned char*)(in);
+	
+	switch (fork()) {
+	case -1:
+		free(data);
+		err(1, "fork()");
+	case 0: /* Child. */
 		wrun();
+		/* NOTREACHED. */
+	default:
+		free(data);
 	}
-	else
-	{/*terminate parent*/
-		free(DATA);
-		return 0;
-	}
-};
+	
+	return 0;
+}
