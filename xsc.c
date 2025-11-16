@@ -239,7 +239,7 @@ main(int argc, char** argv)
 	
 	in = NULL;
 	/* Fill the input buffer. */
-	while((rdr = read(0, &buf, BUF_SZ)) > 0) {
+	while((rdr = read(STDIN_FILENO, &buf, BUF_SZ)) > 0) {
 		buf[rdr] = 0;
 		inlen += rdr;
 		if ((in = realloc(in, inlen)) == NULL)
