@@ -3,17 +3,17 @@ CFLAGS= -Wall
 CFLAGS_RELEASE= -Oz
 INCS= -I/usr/local/include
 LIBS= -L/usr/local/lib -lX11
+PREFIX= /usr/local
 STRIPPER= llvm-strip
 SRC= xsc.c
 BIN= xsc
-PREFIX= /usr/local
 
 all: release
 
 debug: ${SRC}
 	${CC} ${CFLAGS} -o ${BIN} ${INCS} ${LIBS} ${SRC}
 
-release: xsc.c
+release: ${SRC}
 	${CC} ${CFLAGS} ${CFLAGS_RELEASE} -o ${BIN} ${INCS} ${LIBS} ${SRC}
 
 strip: ${BIN}
